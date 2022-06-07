@@ -1,0 +1,745 @@
+---
+title: "Exploring IMDB top 10000 movies with visualization"
+output: html_document
+
+---
+
+### Objective:
+
+Investigate the top 10000 movie in IMDB database to gain understanding of what attributes contribute to ranking of the movies and in turn utilize the analysis to predict the rating of the movies based on their presence in top 10000.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, echo = FALSE,fig.align = "center")
+```
+
+```{r message=FALSE, warning=FALSE, ,echo=FALSE}
+options(scipen = 999, warn = -1)
+library(ggplot2)
+library(dplyr)
+library(visdat)
+library(ggthemes)
+library(tvthemes)
+library(extrafont)
+library(ggpomological)
+library( plotly)
+library(gridExtra)
+library(grid)
+library(corrplot)
+library(ggExtra)
+library(caret)
+library(tidyr)
+library(car)
+library(GGally)
+library(ranger)
+library(randomForest)
+library(shiny)
+loadfonts()
+```
+
+### Dataset
+
+
+The Dataset is a list of top 10,000 movies in IMDb based on the ranking. The dataset includes:
+
+* Movie title
+* Genre of the film
+* Director of the film
+* Duration of the film (in minutes)
+* Release year of the film
+* Number of votes (thousands)
+* Score-Public rating (score out of 10)
+* Metascore-Critics rating (score out of 100)
+* Movie Revenue (millions of dollars)
+
+
+```{r, echo=FALSE, warning=FALSE}
+imdb<-read.csv("movies.csv")
+head(imdb)
+```
+
+```{r echo=TRUE}
+summary(imdb)
+```
+
+We see incomplete variable from the summary so we can visualize the incomplete variables to have a clear understanding of the completeness of our dataset. 
+
+### Visualizing the missing values
+
+```{r echo=TRUE, warning=FALSE}
+vis_miss(imdb)
+```
+
+9 out of 11 variables are complete - they don't have the NA value. In "Metascore" variable are 3219 missing values, which constitutes over 32% of all observations. Similar is in "Revenue" varaible, where 2527 values are empty. 
+
+
+A "VoteMln" variable is created to increase the readability of charts and show the units in Millions instead of large values in thousands.
+
+**Exploring the Variables**
+
+```{r, echo=FALSE, warning=FALSE,,fig.height=5,fig.width=8,fig.align='left'}
+imdb$VoteMln=imdb$Vote/1000000
+
+movie_votes<-imdb%>%slice(1:10)%>%ggplot(., aes(reorder(Title, + VoteMln), 
+                                                VoteMln,text=paste("Vote in Million:",VoteMln))) +
+  coord_flip()+theme_bw()+geom_bar(stat = "identity",fill="#de425b",alpha=.6, width=.7)+
+  labs(x = "", y = "Number of Votes (in milions)", title = "Most popular movies and their Votes in IMDb")+theme_bw()+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), 
+        axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "black"), 
+        plot.caption = element_text(color = "black", face = "italic", size = 11),
+        plot.title = element_text(size= 10,face="bold"))
+
+#div(ggplotly(movie_votes,tooltip="text"),align="left",layout(height = 800, width = 800))
+ggplotly(movie_votes,tooltip="text" )%>% layout(autosize = F,height = 400, width = 800)
+```
+The most popular movie is The **Shawshank Redemtion** (2.01Million Votes).
+It is worth noting that the most popular movie is also the top ranked movie in the list. 
+We can see if the most popular movies are also the best movies in the ranking of users and visualize the user rating to see the highly rated movies
+
+
+```{r ,echo=FALSE, warning=FALSE}
+best_rated<-imdb[order(imdb$Score, decreasing = T),]%>%slice(1:5)%>%ggplot(., aes(reorder(Title, + Score),Score,text=paste("IMDb Rating:$",Score))) +
+  coord_flip()+scale_y_continuous(limits=c(0,10))+ 
+  theme_bw()+geom_bar(stat = "identity",fill="#2f4b7c",alpha=.8, width=.7)+geom_text(aes(label = sprintf("%.1f", Score), y= Score), position = position_stack(vjust = 0.5), size = 3)+
+  labs(x = "", y = "User Ratings", title = "The highest rated movies")+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), 
+        axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "black"), 
+        plot.caption = element_text(color = "black", face = "italic", size = 11),
+        plot.title = element_text(size= 10,face="bold"))
+
+
+worst_rated<-imdb[order(imdb$Score, decreasing = F),]%>%slice(1:5)%>%ggplot(., aes(reorder(Title, + Score),Score,text=paste("IMDb Rating:$",Score))) +
+  coord_flip()+scale_y_continuous(limits=c(0,10))+
+  theme_bw()+geom_bar(stat = "identity", fill = "#f95d6a",alpha=.8, width=.7)+geom_text(aes(label = sprintf("%.1f", Score), y= Score), position = position_stack(vjust = 0.5), size = 3)+
+  labs(x = "", y = "User Ratings", title = "The least rated movies")+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), 
+        axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "black"), 
+        plot.caption = element_text(color = "black", face = "italic", size = 11),
+        plot.title = element_text(size= 10,face="bold"))
+
+
+gA <- ggplotGrob(best_rated)
+gB <- ggplotGrob(worst_rated)
+maxWidth = grid::unit.pmax(gA$widths[2:5], gB$widths[2:5])
+gA$widths[2:5] <- as.list(maxWidth)
+gB$widths[2:5] <- as.list(maxWidth)
+grid.arrange(gA, gB, ncol=1)
+```
+
+The best rated movie by the audience is **Aloko Udapadi**.This work is not in the ranking of the best rated movies, because the ranking also includes the number of votes (this movie have only 6.5k). The worst rated movie from the 10000 most popular films is **Cumali Cebe**r which is relatively popular in terms of votes (over 36k votes).
+
+Looking at the most popular directors
+
+```{r, echo=FALSE, warning=FALSE,fig.height=4,fig.width=3,fig.align="center"}
+Popular_Directors <- imdb %>%
+  group_by(Director) %>%
+  summarise(Votes = sum(VoteMln))
+
+director_popularity<-Popular_Directors %<>% 
+    as_tibble() %>% 
+    mutate(Percentage = Votes/sum(Votes))
+    
+director_popularity<-Popular_Directors[order(Popular_Directors$Votes, decreasing = T),] %>%
+    slice(1:10) %>%
+    ggplot(., aes(reorder(Director, + Votes), Votes,text=paste("Vote in Million:",Votes))) + coord_flip()+geom_bar(stat = "identity",fill="#ffb996",alpha=.6, width=.7) +
+    labs(x = "", y = "Votes (in millions)",title = "Most popular directors", subtitle = "top 10") + theme_bw()+theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"), axis.line = element_line(size = 0.3, colour = "black"),plot.caption = element_text(color = "black", face = "italic", size = 11), plot.title = element_text(size= 10,face="bold"))
+#div(div(ggplotly(director_popularity,tooltip="text"),align="center"),width=5)
+p<-ggplotly(director_popularity,tooltip="text")%>%layout(autosize = F,height = 300, width = 600)
+div(p,align="center")
+```
+
+The most popular director is Steven Spielberg. His films have been rated 10.35 million times on IMDb. Just before, with very little difference there is Christopher Nolan (10.22 milion votes). It is worth adding that in the top 10 most popular films there is no Spielberg's movie! There are two Nolan's movies on the popularity list. The director of the most popular movie (The Shawshank Redemption) is not on the top 10 list of directors.
+
+### What genre is most popular?
+
+\n
+
+```{r, echo=FALSE, warning=FALSE,fig.height=5,fig.width=20,align="center"}
+genre_seperated<-imdb %>%separate_rows(Genre, sep = "\\, ")
+genre_revenue_na<-genre_seperated[complete.cases(genre_seperated$Revenue), ]
+genre_votes<-aggregate(VoteMln ~ Genre, data=genre_revenue_na, FUN=sum)%>%arrange(desc(VoteMln))%>%slice(1:10)%>%ggplot(., aes(reorder(Genre, + VoteMln),VoteMln,text=paste("Vote in Million:",VoteMln))) +
+  coord_flip()+theme_bw()+geom_bar(stat = "identity",fill="#750e13",alpha=.6, width=.7)+
+  labs(x = "", y = "Number of Votes (in milions)", title = "Popularity based on genre")+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), 
+        axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "grey10"), 
+        plot.caption = element_text(color = "gray45", face = "italic", size = 11),
+        plot.title = element_text(size= 20,face="bold"))
+#gvg<-ggplotly(genre_votes,tooltip="text")
+
+genre_revenue<-aggregate(Revenue ~ Genre, data=genre_revenue_na, FUN=sum)%>%slice(1:10)%>%ggplot(., aes(reorder(Genre, + Revenue), Revenue,text=paste("Revenue:",Revenue))) +
+  coord_flip()+theme_bw()+geom_bar(stat = "identity",fill="#750e13",alpha=.6, width=.7)+
+  labs(x = "", y = "Revenue (in milions)", title = "Revenue based on Genre")+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), 
+        axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "black"), 
+        plot.caption = element_text(color = "black", face = "italic", size = 11),
+        plot.title = element_text(size= 20,face="bold"))
+#grg<-ggplotly(genre_revenue,tooltip="text")
+gC <- ggplotGrob(genre_votes)
+gD <- ggplotGrob(genre_revenue)
+maxWidth = grid::unit.pmax(gC$widths[2:5], gD$widths[2:5])
+gC$widths[2:5] <- as.list(maxWidth)
+gD$widths[2:5] <- as.list(maxWidth)
+grid.arrange(gC, gD, ncol=2)
+
+```
+
+
+```{r ,echo=FALSE, warning=FALSE, fig.width=4, fig.height=4,fig.align='center'}
+genA<-genre_votes<-aggregate(Score ~ Genre, data=genre_revenue_na, FUN=median)%>%slice(1:10)%>%ggplot(., aes(reorder(Genre, + Score), 
+ Score,text=paste("Score:",Score))) +
+  coord_flip()+theme_bw()+geom_bar(stat = "identity",fill="#08bdba",alpha=.6, width=.7)+
+  labs(x = "", y = "Score", title = "User Rating by genre")+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), 
+        axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "black"), 
+        plot.caption = element_text(color = "black", face = "italic", size = 11),
+        plot.title = element_text(size= 10,face="bold"))
+p<-ggplotly(genA,tooltip="text")%>%layout(autosize = F,height = 300, width = 500)
+div(p,align="center")
+
+```
+
+One interesting thing here is the though the highest grossing genre is Drama and popular is Action, in terms of rating Filmnoir has the highest rating. The reason behind this could be the number of movies in this genre is less but on an average receives good revies. 
+
+**Comparing the Runtime of the movies**
+
+```{r ,echo=FALSE, warning=FALSE}
+long_run<-imdb[order(imdb$Runtime, decreasing = T),]%>%slice(1:5)%>%ggplot(., aes(reorder(Title, + Runtime),Runtime)) +
+  coord_flip()+scale_y_continuous(limits=c(0,450))+
+  theme_bw()+geom_bar(stat = "identity",fill = "#8a3ffc",alpha=.6, width=.7)+geom_text(aes(label = sprintf("%.1f", Runtime), y= Runtime),color="black",position = position_stack(vjust = 0.5), size = 3)+
+  labs(x = "", y = "Runtime", title = "Longest duration")+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), 
+        axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "black"), 
+        plot.caption = element_text(color = "black", face = "italic", size = 11),
+        plot.title = element_text(size= 10,face="bold"))
+
+
+short_run<-imdb[order(imdb$Runtime, decreasing = F),]%>%slice(1:5)%>%ggplot(., aes(reorder(Title, + Runtime),Runtime)) +
+  coord_flip()+scale_y_continuous(limits=c(0,450))+ 
+  theme_bw()+geom_bar(stat = "identity",fill = "#da1e28",alpha=.6, width=.7)+geom_text(aes(label = sprintf("%.1f", Runtime), y= Runtime),color="black",position = position_stack(vjust = 0.5), size = 3)+
+  labs(x = "", y = "Runtime", title = "Shortest duration")+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"), 
+        axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "black"), 
+        plot.caption = element_text(color = "black", face = "italic", size = 11),
+        plot.title = element_text(size= 10,face="bold"))
+
+
+gC <- ggplotGrob(long_run)
+gD <- ggplotGrob(short_run)
+maxWidth = grid::unit.pmax(gC$widths[2:5], gD$widths[2:5])
+gC$widths[2:5] <- as.list(maxWidth)
+gD$widths[2:5] <- as.list(maxWidth)
+grid.arrange(gC, gD, ncol=1)
+
+
+```
+
+The longest Movie lasts 450 minutes - 7 and a half hours The shortest movie is only  45 . Both these movies are not very popular 
+
+### Visualizing the Distrubution of All Variables
+
+```{r, echo=FALSE, warning=FALSE}
+Votes <- c("Over milion votes","Over 500 thousand votes","Over 100 thousand votes", "Over 10 thousand votes")
+cat ("Number of Votes received")
+Values <- c(sum(imdb$VoteMln > 1),
+            sum(imdb$VoteMln > 0.5),
+            sum(imdb$VoteMln > 0.1),
+            sum(imdb$VoteMln > 0.01))
+Table_Vote  <- cbind(Votes,Values)
+Table_Vote
+```
+
+
+```{r message=FALSE, warning=FALSE, ,echo=FALSE}
+dist_score<-ggplot(imdb, aes(Score))+
+  geom_histogram(binwidth=1,aes(y=..density..),fill = "#6daccf", alpha = 0.85)+geom_density(color="#067bd4")+
+  geom_vline(xintercept = mean(imdb$Score), linetype = "longdash", size = 0.4,color="#03599c")+
+  labs(x = "IMDb Score", title = "User Ratings")+
+  theme_bw()+theme(
+    panel.background = element_rect(fill = "#c7e3f2",
+                                    colour = "#c7e3f2",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "#c7e3f2"),
+    legend.position="none",axis.title = element_text(size = 10,face="italic"),
+    axis.text = element_text(size = 10, face = "italic"), 
+    axis.text.x = element_text(size = 11, face = "italic"), 
+    axis.line = element_line(size = 0.3, colour = "grey10"), 
+    plot.caption = element_text(color = "gray45", face = "italic", size = 11),
+    plot.title = element_text(size= 10,face="bold"))
+
+#Distibution of Meta
+meta_na<- imdb[complete.cases(imdb$Metascore), ]
+
+dist_meta<-ggplot(imdb, aes(Metascore))+
+  geom_histogram(binwidth=10,aes(y=..density..),fill = "#6daccf", alpha = 0.85)+geom_density(color="#067bd4")+
+  geom_vline(xintercept = mean(meta_na$Metascore), linetype = "longdash", size = 0.4,color="#03599c")+
+  labs(x = "Meta Score", title = "Critic Ratings")+
+  scale_x_continuous(breaks = seq(0,100,20))+theme_bw()+theme(
+    panel.background = element_rect(fill = "#c7e3f2",
+                                    colour = "#c7e3f2",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "#c7e3f2"),
+    legend.position="none",axis.title = element_text(size = 10,face="italic"),
+    axis.text = element_text(size = 10, face = "italic"), 
+    axis.text.x = element_text(size = 11, face = "italic"), 
+    axis.line = element_line(size = 0.3, colour = "grey10"), 
+    plot.caption = element_text(color = "gray45", face = "italic", size = 11),
+    plot.title = element_text(size= 10,face="bold"))
+
+#Distribution of Number of movies
+
+
+dist_num<-ggplot(imdb, aes(Year))+
+  geom_histogram(binwidth=10,aes(y=..density..),fill = "#6daccf", alpha = 0.85)+geom_density(color="#067bd4")+
+  geom_vline(xintercept = mean(imdb$Year), linetype = "longdash", size = 0.4,color="#03599c")+
+  labs(x = "Year",title = "Number of movies")+
+  scale_x_continuous(limits = c(1913,2018) ,breaks = c(1913,1928,1943,1958,1973,1988,2003,2018))+ theme_bw()+theme(
+    panel.background = element_rect(fill = "#c7e3f2",
+                                    colour = "#c7e3f2",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "#c7e3f2"),
+  legend.position="none",axis.title = element_text(size = 10,face="italic"),
+  axis.text = element_text(size = 10, face = "italic"), 
+  axis.text.x = element_text(size = 11, face = "italic"), 
+  axis.line = element_line(size = 0.3, colour = "grey10"), 
+  plot.caption = element_text(color = "gray45", face = "italic", size = 11),
+  plot.title = element_text(size= 10,face="bold"))
+
+dist_vote<-ggplot(imdb, aes(VoteMln))+
+  geom_histogram(aes(y=..density..),fill = "#6daccf", alpha = 0.85)+geom_density(color="#067bd4")+
+  geom_vline(xintercept = mean(imdb$VoteMln), linetype = "longdash", size = 0.4,color="#03599c")+
+  labs(x = "Votes in Million", title = "Votes")+
+  scale_x_continuous(breaks = seq(0,2,0.4))+theme_bw()+theme(
+    panel.background = element_rect(fill = "#c7e3f2",
+                                    colour = "#c7e3f2",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "#c7e3f2"),
+    legend.position="none",axis.title = element_text(size = 10,face="italic"),
+    axis.text = element_text(size = 10, face = "italic"), 
+    axis.text.x = element_text(size = 11, face = "italic"), 
+    axis.line = element_line(size = 0.3, colour = "grey10"), 
+    plot.caption = element_text(color = "gray45", face = "italic", size = 11),
+    plot.title = element_text(size= 10,face="bold"))
+
+#distribution of Runtime
+dist_run<-ggplot(imdb, aes(Runtime))+
+  geom_histogram(binwidth=20,aes(y=..density..),fill = "#6daccf", alpha = 0.85)+geom_density(color="#067bd4")+
+  geom_vline(xintercept = mean(imdb$Runtime), linetype = "longdash", size = 0.4,color="#03599c")+
+  labs(x = "Runtime in minutes", title = "Runtime")+
+  scale_x_continuous(breaks = seq(50,250,50))+theme_bw()+theme(
+    panel.background = element_rect(fill = "#c7e3f2",
+                                    colour = "#c7e3f2",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "#c7e3f2"),
+    legend.position="none",axis.title = element_text(size = 10,face="italic"),
+    axis.text = element_text(size = 10, face = "italic"), 
+    axis.text.x = element_text(size = 11, face = "italic"), 
+    axis.line = element_line(size = 0.3, colour = "grey10"), 
+    plot.caption = element_text(color = "gray45", face = "italic", size = 11),
+    plot.title = element_text(size= 10,face="bold"))
+
+#Distribution of Revenue
+revenue_na<-imdb[complete.cases(imdb$Revenue), ]
+
+dist_rev<-ggplot(revenue_na, aes(Revenue))+
+  geom_histogram(aes(y=..density..),fill = "#6daccf", alpha = 0.85)+geom_density(color="#067bd4")+
+  geom_vline(xintercept = mean(revenue_na$Revenue), linetype = "longdash", size = 0.4,color="#03599c")+
+  labs(x = "Revenue in Mln", title = "Revenue")+
+  scale_x_continuous(breaks = c(0,200,400,600,800))+theme_bw()+theme(
+    panel.background = element_rect(fill = "#c7e3f2",
+                                    colour = "#c7e3f2",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "#c7e3f2"),
+    legend.position="none",axis.title = element_text(size = 10,face="italic"),
+    axis.text = element_text(size = 10, face = "italic"), 
+    axis.text.x = element_text(size = 11, face = "italic"), 
+    axis.line = element_line(size = 0.3, colour = "grey10"), 
+    plot.caption = element_text(color = "gray45", face = "italic", size = 11),
+    plot.title = element_text(size= 10,face="bold"))
+gU<-ggplotGrob(dist_score)
+gV<-ggplotGrob(dist_meta)
+gW <- ggplotGrob(dist_num)
+gX <- ggplotGrob(dist_rev)
+gY<-ggplotGrob(dist_run)
+gZ<-ggplotGrob(dist_vote)
+maxWidth2=grid::unit.pmax(gW$widths[2:5], gX$widths[2:5],gY$widths[2:5],gZ$widths[2:5])
+gW$widths[2:5] <- as.list(maxWidth2)
+gX$widths[2:5] <- as.list(maxWidth2)
+gY$widths[2:5] <- as.list(maxWidth2)
+gZ$widths[2:5] <- as.list(maxWidth2)
+gU$widths[2:5] <- as.list(maxWidth2)
+gV$widths[2:5] <- as.list(maxWidth2)
+
+grid.arrange(gW, gX,gY,gZ,gU,gV, ncol=2,top=textGrob("Distribution Based on",gp=gpar(fontsize=10,font=3)))
+
+```
+
+
+**Analysis from the distribution of all variables:**
+
+* On average, the film in the database was released at the beginning of 1998. Due to such a strong asymmetry, we can use median for measurement, according to which the average year of production is 2004. Old movies are rarely in the database of 1000 most popular films.
+* The number of votes is characterized by a very strong right-side asymmetry. The vast majority of movies have a number of votes below average. 27 movies have over one million votes.Most movies in this database has over 10 000 votes.
+* Movies on the database are ~110 minutes on an average. Most of the films last between 75 and 135 minutes.
+-The revenue from movies is characterized by a strong right-side asymmetry. Most movies have little revenue, only a few films made a big profit. The average revenue from the movie was over $ 36 million.
+-User feedback is one of the most important things on the IMDb site. 6.62 is the average rating issued by the user. The distribution is roughly symmetrical, most of the user's ratings are in the range of 6 and 8.
+-The average rating for movies from the database by Metascore users is 56.5 points. The distribution is also symmetrical, but extreme values are relatively often compared to score.
+
+## How does the user ratings and critics rating differ?
+
+```{r ,echo=FALSE, warning=FALSE,warning=FALSE,fig.height=4,fig.width=4,fig.align="center"}
+imdb_na<-imdb[complete.cases(imdb),]
+cor_scores<-ggplot(imdb_na, aes(x=Metascore, y=Score)) + 
+  geom_jitter(alpha = 0.09, col = "#6daccf", size = 2.5)+geom_smooth(method = "lm", color = "black", size=0.2, formula = y ~ x)+
+  scale_y_continuous(name = "IMDB Score", breaks = seq(0,10,2))+
+  scale_x_continuous(name = "Metascore", breaks = seq(0,100,20))+
+  labs(title = "IMDb Score values and Metascore Relation")+
+  theme_bw()+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"),axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),axis.line = element_line(size = 0.3, colour = "black"), plot.caption = element_text(color = "black", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+ggMarginal(cor_scores, type = "histogram",size=4,fill="#f6c085",color="#f6c085",alpha=0.05)
+
+```
+
+The scatter plot shows the spread of IMDb user ratings and ratings from the Metascore critic ratings. The line designated by linear model shows that the correlation is approximately linear.
+
+From the distribution graph we can see that distribution of IMDb Score is more convex and less asymmetric (right-sided asymmetry). Critics' votes from Metascore are more scattered, and IMDb users are close to average.
+
+
+We can fit a polynomial model to see if it is any better
+
+```{r ,echo=FALSE, warning=FALSE,fig.height=4,fig.width=4,fig.align="center"}
+cor_scores_loess<-ggplot(imdb_na, aes(x=Metascore, y=Score))+
+  geom_jitter(alpha = 0.09, col = "#6daccf", size = 2.5)+geom_smooth(method = "loess", color = "black", size=0.2, formula = y ~ x)+
+  scale_y_continuous(name = "IMDB Score", breaks = seq(0,10,2))+
+  scale_x_continuous(name = "Metascore", breaks = seq(0,100,20))+
+  labs(title = "IMDb Score values and Metascore Relation")+
+  theme_bw()+
+  theme(legend.position="none",axis.title = element_text(size = 10,face="italic"),axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),axis.line = element_line(size = 0.3, colour = "grey10"), plot.caption = element_text(color = "gray45", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+ggMarginal(cor_scores_loess, type = "histogram",size=4,color="#f6c085",fill="#f6c085",alpha = 0.05)
+
+```
+
+### Analyzing more correlation between the variables
+
+```{r, echo=FALSE, warning=FALSE,fig.height=4,fig.width=5,fig.align="center"}
+imdb_na<-imdb[complete.cases(imdb),]
+cor_imdb<-cor(imdb_na[,unlist(lapply(imdb_na, is.numeric))])
+#ggcorrplot(corel_matrix[c(1, 3:7),c(1,3:7)], outline.col = "gray20", type = "upper")
+corrplot(cor_imdb[c(1,3:7),c(1,3:7)],method="number",type = "upper")
+```
+
+* We can see large positive correlation between the metascore and IMDb user ratings and between the number of votes and revenue. 
+
+* Large negative correlations can be seen between the Rank and the number of votes similarly with income and ranking. This is due to the fact that ranks start with a small number and the lower the rank, the better.
+
+## How has ratings affected popularity?
+
+```{r echo=FALSE, warning=FALSE,fig.height=5,fig.width=20}
+gpvo<-ggplot(imdb_na, aes(x=Score, y=VoteMln)) + 
+  geom_jitter(alpha = 0.09, col = "#a56eff", size = 2.5)+
+  geom_smooth(method = "loess", color = "brown4", fill = "red3", formula = y ~ x)+
+  scale_y_continuous(trans="log10",name = "Votes in  million")+
+  scale_x_continuous(name = "IMDb Rating", breaks = seq(0,10,2))+
+  labs(title = "Scatterplot for Votes and User Rating")+
+  theme_bw()+
+  theme(legend.position="right",axis.title = element_text(size = 10,face="italic"),axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),axis.line = element_line(size = 0.3, colour = "grey10"), plot.caption = element_text(color = "gray45", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+
+
+gpms<-ggplot(imdb_na, aes(x=Metascore, y=VoteMln)) + geom_jitter(alpha = 0.09, col = "darkblue", size = 2.5)+
+  geom_point(aes(color=Score))+geom_smooth(method = "lm", color = "brown4", fill = "red3", formula = y ~ x)+
+  scale_y_continuous(trans="log10")+
+  scale_x_continuous(name = "Metascore", breaks = seq(0,100,20))+
+  labs(title = "Scatterplot for Votes and Metascore")+
+  theme_bw()+
+  theme(legend.position="right",axis.title = element_text(size = 10,face="italic"),axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),axis.line = element_line(size = 0.3, colour = "grey10"), plot.caption = element_text(color = "gray45", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+
+gU<-ggplotGrob(gpvo)
+gV<-ggplotGrob(gpms)
+maxWidth2=grid::unit.pmax(gU$widths[2:5],gV$widths[2:5])
+gU$widths[2:5] <- as.list(maxWidth2)
+gV$widths[2:5] <- as.list(maxWidth2)
+
+grid.arrange(gU,gV, ncol=2)
+
+```
+
+
+
+* There is a small positive correlation between the popularity of move and opinion of IMDB Users. Most movies have less than 500 thousand votes so most of the observations are at the bottom of the chart. The relationship is not very linear so a polynomial relation fit the relationship better.We can conclude that very good rated movies by users are much more popular than others.
+
+
+* There is a small positive correlation between the popularity of movie and opinion of film critics.
+
+## What impact does runtime have on revenue and popularity?
+
+```{r, echo=FALSE, warning=FALSE,fig.height=5,fig.width=20}
+
+grtr<-ggplot(imdb_na, aes(x=Revenue, y=Runtime)) +
+  geom_jitter(alpha = 0.09, col = "#9f1853", size = 2.5)+
+  geom_smooth(method = "lm", color = "brown4", fill = "red3", formula = y ~ x)+
+  scale_x_continuous(breaks =seq(0,900,200) ,name = "Revenue in Million")+
+  scale_y_continuous(name = "Runtime", breaks =seq(0,500,100) )+
+  labs(title = "Scatterplot for Runtime and Revenue")+
+  theme_bw()+
+  theme(legend.position="right",legend.title = element_text(size = 10,face="italic"),
+        axis.title = element_text(size = 10,face="italic"),
+        axis.text = element_text(size = 10, face = "italic"), 
+        axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "grey10"), 
+        plot.caption = element_text(color = "gray45", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+
+
+grtv<-ggplot(imdb_na, aes(y=Runtime, x=VoteMln)) +
+  geom_jitter(alpha = 0.09, col = "#198038", size = 2.5)+
+  geom_smooth(method = "lm", color = "brown4", fill = "red3", formula = y ~ x)+
+  scale_y_continuous(trans = "sqrt",breaks =seq(0,900,200) )+
+  scale_x_continuous(trans="log10",name = "Votes in  million" )+
+  labs(title = "Scatterplot for Runtime and Votes")+
+  theme_bw()+
+  theme(legend.position="right",legend.title = element_text(size = 10,face="italic"),
+        axis.title = element_text(size = 10,face="italic"),
+        axis.text = element_text(size = 10, face = "italic"), 
+        axis.text.x = element_text(size = 11, face = "italic"),
+        axis.line = element_line(size = 0.3, colour = "grey10"), 
+        plot.caption = element_text(color = "gray45", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+
+gU<-ggplotGrob(grtr)
+gV<-ggplotGrob(grtv)
+maxWidth2=grid::unit.pmax(gU$widths[2:5],gV$widths[2:5])
+gU$widths[2:5] <- as.list(maxWidth2)
+gV$widths[2:5] <- as.list(maxWidth2)
+
+grid.arrange(gU,gV, ncol=2)
+
+```
+
+* Most movies are 50-150 minutes and the votes are distributed. The relationship is not particularly linear. Only very few movies which is more than 200 min are popular.
+and movies more than 200 minutes are not the most money making movies.
+
+
+## How does important predictors like popularity and ratings affect revenue of the movies?
+
+
+```{r, echo=FALSE, warning=FALSE,fig.height=5,fig.width=20}
+gvote<-ggplot(imdb_na, aes(y=Revenue, x=VoteMln)) + geom_point()+
+geom_jitter(alpha = 0.09, col = "#1192e8", size = 2.5)+
+  geom_smooth(method = "loess", color = "brown4", fill = "red3", formula = y ~ x)+
+  scale_y_continuous(breaks = seq(0,800,200))+
+  scale_x_continuous(name = "Votes in Million",trans="log10" )+
+  labs(title = "Scatterplot for Revenue and Votes")+
+  theme_bw()+
+  theme(legend.position="right",legend.title = element_text(size = 10,face="italic"),axis.title = element_text(size = 10,face="italic"),axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),axis.line = element_line(size = 0.3, colour = "grey10"), plot.caption = element_text(color = "gray45", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+
+gscr<-ggplot(imdb_na, aes(y=Revenue, x=Score)) +
+  geom_jitter(alpha = 0.09, col = "#009d9a", size = 2.5)+
+  geom_smooth(method = "lm", color = "brown4", fill = "red3", formula = y ~ x)+
+  scale_y_continuous(breaks =seq(0,800,200) )+
+  scale_x_continuous(name = "IMDb Score", breaks =c(0,2,4,6,8,10) )+
+  labs(title = "Scatterplot for Revenue and IMDb Score")+
+  theme_bw()+
+  theme(legend.position="right",legend.title = element_text(size = 10,face="italic"),axis.title = element_text(size = 10,face="italic"),axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),axis.line = element_line(size = 0.3, colour = "grey10"), plot.caption = element_text(color = "gray45", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+
+gmscr<-ggplot(imdb_na, aes(y=Revenue, x=Metascore)) + 
+  geom_point(aes(color=Score))+
+  geom_jitter(alpha = 0.09, col = "#a56eff", size = 2.5)+
+  geom_smooth(method = "loess", color = "brown4", fill = "red3", formula = y ~ x)+
+  scale_y_continuous(trans = "log10" ,name = "Revenue in Million")+
+  scale_x_continuous(name = "Metascore", breaks =seq(0,100,20) )+
+  labs(title = "Scatterplot for Revenue and Metascore")+
+  theme_bw()+
+  theme(legend.position="right",legend.title = element_text(size = 10,face="italic"),axis.title = element_text(size = 10,face="italic"),axis.text = element_text(size = 10, face = "italic"), axis.text.x = element_text(size = 11, face = "italic"),axis.line = element_line(size = 0.3, colour = "grey10"), plot.caption = element_text(color = "gray45", face = "italic", size = 11),plot.title = element_text(size= 10,face="bold"))
+
+gU<-ggplotGrob(gvote)
+gV<-ggplotGrob(gscr)
+gW <- ggplotGrob(gmscr)
+maxWidth2=grid::unit.pmax(gU$widths[2:5],gV$widths[2:5],gW$widths[2:5])
+gW$widths[2:5] <- as.list(maxWidth2)
+gU$widths[2:5] <- as.list(maxWidth2)
+gV$widths[2:5] <- as.list(maxWidth2)
+
+grid.arrange(gW,gV,gU, ncol=3)
+
+```
+
+* The number of votes is moderately correlated with the revenue from the movie. The dta on both these variables had right side asymmetry so most of the points are concentrated towards 0. A non linear model fits better and according to which the increase in the number of votes may affect to revenue. This means that if a movie is popular and then the movie is profitable which seems correct.
+
+
+
+* There is no significant correlation between the rating of IMDb users and the revenue from the movie. Ratings are more dispersed than revenue. 
+
+
+* There is no to very little correlation between Metascore and the revenue from the movie. The metascore are definitely more dispersed than revenue. It isn't possible to relate these two variables.
+
+
+
+### Prediction of Score(User Rating) if the movie is in top 10000
+
+We will attempt to create a prediction of the rating a movie can get if is in the list of top 10000 popular movies. We use simple multilinear regression model to do the prediction.
+
+### Using Multi-linear Regression
+
+We create a model with only the numeric variable
+
+
+```{r, echo=FALSE, warning=FALSE}
+learning_imdb <- imdb_na
+learning_imdb <- within(learning_imdb, rm("Title", "Description", "VoteMln","Genre","Director"))
+learning_imdb <- learning_imdb %>% mutate_if(is.integer, as.numeric)
+set.seed(124)
+row.number <- sample(1:nrow(learning_imdb), 0.8*nrow(learning_imdb))
+train = learning_imdb[row.number,]
+test = learning_imdb[-row.number,]
+data.frame(train = dim(train), test = dim(test), row.names = c("Number of rows","Number of columns"))
+
+```
+```{r }
+model1 = lm(Score~., data=train)
+summary(model1)
+```
+
+```{r}
+pairs(learning_imdb)
+```
+
+#### Using Genre(qualitative) in the model
+
+We add categorical variable like genre to the model to evaluate if we get a better R squared by adding more parameters to the model
+
+
+```{r}
+genre_seperated_na<-imdb_na %>%separate_rows(Genre, sep = "\\, ")
+learning_imdb2<-genre_seperated_na
+learning_imdb2 <- within(learning_imdb2, rm("Title", "Description", "VoteMln","Director"))
+learning_imdb2 <- learning_imdb2 %>% mutate_if(is.integer, as.numeric)
+set.seed(1248)
+row.number <- sample(1:nrow(learning_imdb2), 0.8*nrow(learning_imdb2))
+train2 = learning_imdb2[row.number,]
+test2 = learning_imdb2[-row.number,]
+data.frame(train = dim(train2), test = dim(test2), row.names = c("Number of rows","Number of columns"))
+
+```
+```{r }
+modelz = lm(Score~., data=train)
+summary(modelz)
+```
+
+There is no significant improvement in the model after adding more variable so we can ignore the qualitative variables in our model. Next we will see the performance of our model by adding polynomial terms to our first model
+
+#### Using polynomial terms in the model
+
+
+```{r }
+model2<-lm(Score~Rank+Revenue+Metascore+Runtime+I(Rank^2)+I(Revenue^2)+I(Metascore^2)+I(Runtime^2)+I(Vote^2),data=train)
+summary(model2)
+```
+
+```{r }
+pred1 <- predict(model1, newdata = test)
+
+```
+
+Here also we see the performance is similar so we use the simple multilinear regression model for prediction 
+Using the first simple model we predict the rating  measure the goodness of fit and and plot the graph comparing our predicted and actual value.
+
+```{r }
+head(data.frame(pred1, test$Score))
+```
+```{r }
+cat( "R-squared:",summary(model1)$r.squared)
+cat("\n")
+cat ("RMSE Test:",RMSE(pred1,test$Score))
+```
+
+Plot predicted vs observed value
+```{r,fig.height=5,fig.align="center"}
+plot_data <- data.frame(Predicted_value = pred1,Observed_value = test$Score)
+ggplot(plot_data, aes(x = Predicted_value, y = Observed_value)) +
+  geom_point(color="#6929c4")+
+  geom_abline(intercept = 0, slope = 1, color = "black")+
+  theme_bw()+labs (title="Prediceted vs Observed values")+
+  theme(
+    panel.background = element_rect(fill = "#89bac7",
+                                    #colour = "#65d5f7",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "#9ef0f0"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "#9ef0f0"),
+    legend.position="none",axis.title = element_text(size = 10,face="italic"),
+    axis.text = element_text(size = 10, face = "italic"), 
+    axis.text.x = element_text(size = 11, face = "italic"), 
+    axis.line = element_line(size = 0.3, colour = "black"), 
+    plot.caption = element_text(color = "black", face = "italic", size = 11),
+    plot.title = element_text(size= 10,face="bold"))
+```
+
+### Using Random Forest
+
+```{r echo=FALSE, warning=FALSE}
+
+trainset.rf<-ranger(Score ~ ., data = train, num.trees = 100, mtry = 6, min.node.size = 1, replace = T)
+trainset.rf
+```
+
+Predicted Scores
+```{r echo=FALSE, warning=FALSE}
+pred_test <- predict(trainset.rf, test)
+pred_test <- unlist(pred_test)
+pred_test <- as.numeric(pred_test[1:nrow(test)])
+pred_test <- round(pred_test, 2)
+head(data.frame(pred_test, test$Score))
+
+```
+
+
+### Impact
+
+```{r,echo=FALSE, warning=FALSE,fig.height=4,fig.align='center'}
+trainset.rf<-randomForest(Score~., data = train, num.trees = 100,importance=T)
+varimp<-data.frame(trainset.rf$importance)
+ggplot (varimp, aes (x=reorder (rownames (varimp) , IncNodePurity), y=IncNodePurity) )+geom_text(aes(label = sprintf("%.2f", IncNodePurity), y= IncNodePurity),
+            position = position_stack(vjust = 0.5), size = 4)+geom_bar (stat="identity", fill="#6929c4")+coord_flip()+ theme_bw (base_size = 8)+labs (title="Importance of Variable RandomForest",x="Variable", y="Variable importance")+theme(legend.position="none",axis.title = element_text(size = 10,face="italic"),
+    axis.text = element_text(size = 10, face = "italic"), 
+    axis.text.x = element_text(size = 11, face = "italic"), 
+    axis.line = element_line(size = 0.3, colour = "black"), 
+    plot.caption = element_text(color = "black", face = "italic", size = 11),
+    plot.title = element_text(size= 10,face="bold"))
+```
+
+### Conclusion
+
+* Variable which definitely has the most influence on the User Rating in this algorithm is **Metascore**. Other variables have a similar impact on the number of votes.
+Audience ratings of the movies are quite close to those of the critics ratings
+Critics rate more severely than the public.
+
+* It’s also important to look at the coefficients associated with each feature.All variables have significant impact on the User ratings. Other than the variables considered in the model, the ratings of a movie can depend on more factors like the time of the year it is released, the actors , production and so on. With a larger model we can accurately determine the ratings and popularity for a movie.
+
+* The movie business is a high demand high cost business and data analysis such as these on a larger scale can help us identify the factors that would make a movie successful.
+
+
+
+
